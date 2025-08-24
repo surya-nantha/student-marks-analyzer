@@ -1,80 +1,148 @@
 import React, { useState, useEffect } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, PieChart, Pie, Cell, LineChart, Line } from 'recharts';
-import { Users, BookOpen, TrendingUp, FileText, Plus, Download, School, MapPin, Filter, Eye } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, PieChart, Pie, Cell } from 'recharts';
+import { Users, BookOpen, TrendingUp, FileText, Plus, Download, School, MapPin, Eye, RefreshCw, AlertCircle, Trash2 } from 'lucide-react';
 
 const MultiSchoolMarksAnalyzer = () => {
   const [activeTab, setActiveTab] = useState('overview');
   const [students, setStudents] = useState([]);
+  const [schools, setSchools] = useState([]);
   const [selectedSchool, setSelectedSchool] = useState('all');
   const [selectedClass, setSelectedClass] = useState('all');
-  const [selectedSubject, setSelectedSubject] = useState('all');
   const [showAddStudent, setShowAddStudent] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [analytics, setAnalytics] = useState({
+    overview: null,
+    subjects: null
+  });
+
+  const API_BASE_URL = 'http://localhost:5000/api';
 
   const subjects = ['Tamil', 'English', 'Maths'];
   const classes = ['6A', '6B', '6C', '6D', '7A', '7B', '7C', '7D', '8A', '8B', '8C', '8D', '9A', '9B', '9C', '9D'];
   const classLevels = ['6', '7', '8', '9'];
 
-  const schools = [
-    { id: 'pums_agalanganallur', name: 'PUMS - Agalanganallur', type: 'PUMS', location: 'Agalanganallur' },
-    { id: 'pums_agalanganallur_new', name: 'PUMS - Agalanganallur (New Street)', type: 'PUMS', location: 'Agalanganallur' },
-    { id: 'pums_ariyur', name: 'PUMS - Ariyur', type: 'PUMS', location: 'Ariyur' },
-    { id: 'pums_esanakkorai', name: 'PUMS - Esanakkorai', type: 'PUMS', location: 'Esanakkorai' },
-    { id: 'pums_kuhoor', name: 'PUMS - Kuhoor', type: 'PUMS', location: 'Kuhoor' },
-    { id: 'pums_manakkal', name: 'PUMS - Manakkal', type: 'PUMS', location: 'Manakkal' },
-    { id: 'pums_marudhur', name: 'PUMS - Marudhur', type: 'PUMS', location: 'Marudhur' },
-    { id: 'pums_nathamangudi', name: 'PUMS - Nathamangudi', type: 'PUMS', location: 'Nathamangudi' },
-    { id: 'pums_pallapuram', name: 'PUMS - Pallapuram', type: 'PUMS', location: 'Pallapuram' },
-    { id: 'pums_sathamangalam', name: 'PUMS - Sathamangalam', type: 'PUMS', location: 'Sathamangalam' },
-    { id: 'pums_south_chathiram', name: 'PUMS - South Chathiram', type: 'PUMS', location: 'South Chathiram' },
-    { id: 'pums_thirumanamedu', name: 'PUMS - Thirumanamedu', type: 'PUMS', location: 'Thirumanamedu' },
-    { id: 'pums_thachankurichi', name: 'PUMS - Thachankurichi', type: 'PUMS', location: 'Thachankurichi' },
-    { id: 'pums_thirumangalam', name: 'PUMS - Thirumangalam', type: 'PUMS', location: 'Thirumangalam' },
-    { id: 'ghs_nagar', name: 'GHS - Nagar', type: 'GHS', location: 'Nagar' },
-    { id: 'ghs_peruvalanallur', name: 'GHS - Peruvalanallur', type: 'GHS', location: 'Peruvalanallur' },
-    { id: 'ghs_pudur_uthamanur', name: 'GHS - Pudur Uthamanur', type: 'GHS', location: 'Pudur Uthamanur' },
-    { id: 'ghs_thalakkudi', name: 'GHS - Thalakkudi', type: 'GHS', location: 'Thalakkudi' },
-    { id: 'ghs_mandhurai', name: 'GHS - Mandhurai', type: 'GHS', location: 'Mandhurai' },
-    { id: 'ghs_lalgudi', name: 'GHS - Lalgudi', type: 'GHS', location: 'Lalgudi' },
-    { id: 'adwhs_melavaladi', name: 'ADWHS - Melavaladi', type: 'ADWHS', location: 'Melavaladi' }
-  ];
+  // API service functions
+  const apiService = {
+    async fetchSchools() {
+      const response = await fetch(`${API_BASE_URL}/schools`);
+      if (!response.ok) throw new Error('Failed to fetch schools');
+      return response.json();
+    },
 
-  // Sample data initialization with multiple schools
+    async fetchStudents(filters = {}) {
+      const params = new URLSearchParams();
+      Object.entries(filters).forEach(([key, value]) => {
+        if (value && value !== 'all') params.append(key, value);
+      });
+      
+      const response = await fetch(`${API_BASE_URL}/students?${params}`);
+      if (!response.ok) throw new Error('Failed to fetch students');
+      return response.json();
+    },
+
+    async createStudent(studentData) {
+      const response = await fetch(`${API_BASE_URL}/students`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(studentData)
+      });
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to create student');
+      }
+      return response.json();
+    },
+
+    async deleteStudent(id) {
+      const response = await fetch(`${API_BASE_URL}/students/${id}`, {
+        method: 'DELETE'
+      });
+      if (!response.ok) throw new Error('Failed to delete student');
+      return response.json();
+    },
+
+    async fetchAnalytics(filters = {}) {
+      const params = new URLSearchParams();
+      Object.entries(filters).forEach(([key, value]) => {
+        if (value && value !== 'all') params.append(key, value);
+      });
+
+      const [overview, subjects] = await Promise.all([
+        fetch(`${API_BASE_URL}/analytics/overview?${params}`).then(r => r.json()),
+        fetch(`${API_BASE_URL}/analytics/subjects?${params}`).then(r => r.json())
+      ]);
+
+      return { overview, subjects };
+    }
+  };
+
+  // Load initial data
   useEffect(() => {
-    const sampleStudents = [
-      // PUMS Agalanganallur
-      { id: 1, name: 'Raj Kumar', class: '6A', school: 'pums_agalanganallur', tamil: 8, english: 6, maths: 9 },
-      { id: 2, name: 'Priya Singh', class: '6A', school: 'pums_agalanganallur', tamil: 5, english: 7, maths: 4 },
-      { id: 3, name: 'Arjun Patel', class: '7B', school: 'pums_agalanganallur', tamil: 9, english: 8, maths: 10 },
-      
-      // PUMS Ariyur
-      { id: 4, name: 'Meera Sharma', class: '6C', school: 'pums_ariyur', tamil: 3, english: 5, maths: 6 },
-      { id: 5, name: 'Kiran Reddy', class: '7A', school: 'pums_ariyur', tamil: 7, english: 9, maths: 8 },
-      { id: 6, name: 'Divya Nair', class: '8B', school: 'pums_ariyur', tamil: 2, english: 4, maths: 3 },
-      
-      // GHS Nagar
-      { id: 7, name: 'Rohit Gupta', class: '8A', school: 'ghs_nagar', tamil: 10, english: 8, maths: 9 },
-      { id: 8, name: 'Kavya Joshi', class: '9B', school: 'ghs_nagar', tamil: 6, english: 7, maths: 5 },
-      { id: 9, name: 'Amit Sharma', class: '9C', school: 'ghs_nagar', tamil: 9, english: 9, maths: 8 },
-      
-      // GHS Lalgudi
-      { id: 10, name: 'Sneha Patel', class: '9A', school: 'ghs_lalgudi', tamil: 4, english: 6, maths: 7 },
-      { id: 11, name: 'Vikram Singh', class: '8B', school: 'ghs_lalgudi', tamil: 8, english: 8, maths: 9 },
-      { id: 12, name: 'Anita Reddy', class: '7C', school: 'ghs_lalgudi', tamil: 7, english: 5, maths: 6 },
-      
-      // ADWHS Melavaladi
-      { id: 13, name: 'Ravi Kumar', class: '6D', school: 'adwhs_melavaladi', tamil: 6, english: 8, maths: 7 },
-      { id: 14, name: 'Pooja Nair', class: '7C', school: 'adwhs_melavaladi', tamil: 9, english: 7, maths: 10 },
-      { id: 15, name: 'Suresh Gupta', class: '8D', school: 'adwhs_melavaladi', tamil: 5, english: 6, maths: 4 },
-      
-      // More sample data across different schools
-      { id: 16, name: 'Deepika Joshi', class: '9D', school: 'pums_kuhoor', tamil: 8, english: 9, maths: 8 },
-      { id: 17, name: 'Manoj Sharma', class: '6A', school: 'pums_manakkal', tamil: 7, english: 8, maths: 9 },
-      { id: 18, name: 'Lakshmi Iyer', class: '7A', school: 'ghs_peruvalanallur', tamil: 9, english: 6, maths: 8 },
-      { id: 19, name: 'Ganesh Raman', class: '8A', school: 'ghs_thalakkudi', tamil: 5, english: 7, maths: 6 },
-      { id: 20, name: 'Radha Krishna', class: '9A', school: 'pums_thirumangalam', tamil: 8, english: 9, maths: 10 },
-    ];
-    setStudents(sampleStudents);
+    loadData();
   }, []);
+
+  // Load data when filters change
+  useEffect(() => {
+    loadStudents();
+    loadAnalytics();
+  }, [selectedSchool, selectedClass]);
+
+  const loadData = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const schoolsData = await apiService.fetchSchools();
+      setSchools(schoolsData);
+      await loadStudents();
+      await loadAnalytics();
+    } catch (err) {
+      setError(err.message);
+      console.error('Error loading data:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadStudents = async () => {
+    try {
+      const filters = {
+        school: selectedSchool,
+        class: selectedClass
+      };
+      const studentsData = await apiService.fetchStudents(filters);
+      setStudents(studentsData);
+    } catch (err) {
+      console.error('Error loading students:', err);
+    }
+  };
+
+  const loadAnalytics = async () => {
+    try {
+      const filters = {
+        school: selectedSchool,
+        class: selectedClass
+      };
+      const analyticsData = await apiService.fetchAnalytics(filters);
+      setAnalytics(analyticsData);
+    } catch (err) {
+      console.error('Error loading analytics:', err);
+    }
+  };
+
+  const handleDeleteStudent = async (studentId) => {
+    if (!window.confirm('Are you sure you want to delete this student?')) return;
+    
+    try {
+      await apiService.deleteStudent(studentId);
+      await loadStudents(); // Refresh the list
+      await loadAnalytics(); // Refresh analytics
+    } catch (err) {
+      setError(err.message);
+    }
+  };
 
   const getMarksCategory = (marks) => {
     if (marks >= 0 && marks <= 5) return 'Below Average (0-5)';
@@ -83,138 +151,45 @@ const MultiSchoolMarksAnalyzer = () => {
     return 'Invalid';
   };
 
-  const getFilteredStudents = () => {
-    return students.filter(student => {
-      const schoolMatch = selectedSchool === 'all' || student.school === selectedSchool;
-      const classMatch = selectedClass === 'all' || student.class === selectedClass;
-      return schoolMatch && classMatch;
-    });
-  };
-
-  const getSchoolStats = () => {
-    const stats = {};
-    
-    schools.forEach(school => {
-      const schoolStudents = students.filter(s => s.school === school.id);
-      stats[school.id] = {
-        name: school.name,
-        type: school.type,
-        location: school.location,
-        totalStudents: schoolStudents.length,
-        byClass: {},
-        byClassLevel: {},
-        performance: { 'Below Average (0-5)': 0, 'Average (6-7)': 0, 'Excellent (8-10)': 0 }
-      };
-
-      // Count by class levels
-      classLevels.forEach(level => {
-        stats[school.id].byClassLevel[level] = schoolStudents.filter(s => s.class.startsWith(level)).length;
-      });
-
-      // Calculate performance distribution
-      schoolStudents.forEach(student => {
-        subjects.forEach(subject => {
-          const marks = student[subject.toLowerCase()];
-          if (marks !== undefined) {
-            const category = getMarksCategory(marks);
-            stats[school.id].performance[category]++;
-          }
-        });
-      });
-    });
-
-    return stats;
-  };
-
-  const getOverallStats = () => {
-    const filteredStudents = getFilteredStudents();
-    const stats = {
-      totalStudents: filteredStudents.length,
-      totalSchools: selectedSchool === 'all' ? schools.length : 1,
-      bySchoolType: {},
-      byClass: {},
-      byClassLevel: {},
-      overallDistribution: { 'Below Average (0-5)': 0, 'Average (6-7)': 0, 'Excellent (8-10)': 0 }
-    };
-
-    // Count by school type
-    const schoolTypes = ['PUMS', 'GHS', 'ADWHS'];
-    schoolTypes.forEach(type => {
-      if (selectedSchool === 'all') {
-        stats.bySchoolType[type] = students.filter(s => {
-          const school = schools.find(sch => sch.id === s.school);
-          return school && school.type === type;
-        }).length;
-      } else {
-        const school = schools.find(sch => sch.id === selectedSchool);
-        stats.bySchoolType[type] = school && school.type === type ? filteredStudents.length : 0;
-      }
-    });
-
-    // Count by class sections
-    classes.forEach(cls => {
-      stats.byClass[cls] = filteredStudents.filter(s => s.class === cls).length;
-    });
-
-    // Count by class levels
-    classLevels.forEach(level => {
-      stats.byClassLevel[level] = filteredStudents.filter(s => s.class.startsWith(level)).length;
-    });
-
-    // Calculate overall distribution
-    filteredStudents.forEach(student => {
-      subjects.forEach(subject => {
-        const marks = student[subject.toLowerCase()];
-        if (marks !== undefined) {
-          const category = getMarksCategory(marks);
-          stats.overallDistribution[category]++;
-        }
-      });
-    });
-
-    return stats;
-  };
-
-  const getSubjectAnalysis = () => {
-    const filteredStudents = getFilteredStudents();
-    const analysis = {};
-
-    subjects.forEach(subject => {
-      const subjectKey = subject.toLowerCase();
-      const marks = filteredStudents.map(s => s[subjectKey]).filter(m => m !== undefined);
-      
-      const belowAverage = marks.filter(m => m >= 0 && m <= 5).length;
-      const average = marks.filter(m => m >= 6 && m <= 7).length;
-      const excellent = marks.filter(m => m >= 8 && m <= 10).length;
-
-      analysis[subject] = {
-        'Below Average (0-5)': belowAverage,
-        'Average (6-7)': average,
-        'Excellent (8-10)': excellent,
-        total: marks.length
-      };
-    });
-
-    return analysis;
-  };
-
   const getChartData = () => {
-    const analysis = getSubjectAnalysis();
+    if (!analytics.subjects) return [];
+    
     return subjects.map(subject => ({
       subject,
-      'Below Average': analysis[subject]['Below Average (0-5)'],
-      'Average': analysis[subject]['Average (6-7)'],
-      'Excellent': analysis[subject]['Excellent (8-10)']
+      'Below Average': analytics.subjects[subject]?.['Below Average (0-5)'] || 0,
+      'Average': analytics.subjects[subject]?.['Average (6-7)'] || 0,
+      'Excellent': analytics.subjects[subject]?.['Excellent (8-10)'] || 0
     }));
   };
 
+  const getSubjectAnalysis = () => {
+  if (!analytics.subjects) return {};
+
+  const result = {};
+  subjects.forEach(subject => {
+    const data = analytics.subjects[subject] || {};
+    result[subject] = {
+      'Below Average (0-5)': data['Below Average (0-5)'] || 0,
+      'Average (6-7)': data['Average (6-7)'] || 0,
+      'Excellent (8-10)': data['Excellent (8-10)'] || 0,
+      total: (data['Below Average (0-5)'] || 0) +
+             (data['Average (6-7)'] || 0) +
+             (data['Excellent (8-10)'] || 0)
+    };
+  });
+  return result;
+};
+
+
   const getPieChartData = () => {
-    const stats = getOverallStats();
-    const total = stats.overallDistribution['Below Average (0-5)'] + 
-                 stats.overallDistribution['Average (6-7)'] + 
-                 stats.overallDistribution['Excellent (8-10)'];
+    if (!analytics.overview) return [];
     
-    return Object.entries(stats.overallDistribution).map(([key, value]) => ({
+    const { overallDistribution } = analytics.overview;
+    const total = overallDistribution['Below Average (0-5)'] + 
+                 overallDistribution['Average (6-7)'] + 
+                 overallDistribution['Excellent (8-10)'];
+    
+    return Object.entries(overallDistribution).map(([key, value]) => ({
       name: key,
       value,
       percentage: total > 0 ? ((value / total) * 100).toFixed(1) : 0
@@ -225,31 +200,42 @@ const MultiSchoolMarksAnalyzer = () => {
 
   const AddStudentForm = () => {
     const [newStudent, setNewStudent] = useState({
-      name: '', class: '6A', school: schools[0].id, tamil: '', english: '', maths: ''
+      name: '', class: '6A', school: schools[0]?.id || '', tamil: '', english: '', maths: ''
     });
+    const [submitting, setSubmitting] = useState(false);
 
-    const handleSubmit = () => {
+    const handleSubmit = async (e) => {
+      e.preventDefault();
       if (!newStudent.name.trim()) return;
       
-      const student = {
-        id: Date.now(),
-        name: newStudent.name,
-        class: newStudent.class,
-        school: newStudent.school,
-        tamil: parseInt(newStudent.tamil) || 0,
-        english: parseInt(newStudent.english) || 0,
-        maths: parseInt(newStudent.maths) || 0
-      };
-      setStudents([...students, student]);
-      setNewStudent({ name: '', class: '6A', school: schools[0].id, tamil: '', english: '', maths: '' });
-      setShowAddStudent(false);
+      setSubmitting(true);
+      try {
+        const student = {
+          name: newStudent.name,
+          class: newStudent.class,
+          school: newStudent.school,
+          tamil: parseInt(newStudent.tamil) || 0,
+          english: parseInt(newStudent.english) || 0,
+          maths: parseInt(newStudent.maths) || 0
+        };
+        
+        await apiService.createStudent(student);
+        setNewStudent({ name: '', class: '6A', school: schools[0]?.id || '', tamil: '', english: '', maths: '' });
+        setShowAddStudent(false);
+        await loadStudents(); // Refresh the list
+        await loadAnalytics(); // Refresh analytics
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setSubmitting(false);
+      }
     };
 
     return (
       <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
         <div className="bg-white p-6 rounded-lg max-w-md w-full mx-4 max-h-90vh overflow-y-auto">
           <h3 className="text-xl font-bold mb-4">Add New Student</h3>
-          <div className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-sm font-medium mb-1">Student Name</label>
               <input
@@ -321,11 +307,11 @@ const MultiSchoolMarksAnalyzer = () => {
             </div>
             <div className="flex gap-2 pt-4">
               <button
-                type="button"
-                onClick={handleSubmit}
-                className="flex-1 bg-blue-500 text-white py-2 rounded-lg hover:bg-blue-600"
+                type="submit"
+                disabled={submitting}
+                className="flex-1 bg-blue-500 text-white py-2 rounded-lg hover:bg-blue-600 disabled:opacity-50"
               >
-                Add Student
+                {submitting ? 'Adding...' : 'Add Student'}
               </button>
               <button
                 type="button"
@@ -335,27 +321,72 @@ const MultiSchoolMarksAnalyzer = () => {
                 Cancel
               </button>
             </div>
-          </div>
+          </form>
         </div>
       </div>
     );
   };
 
-  const stats = getOverallStats();
-  const schoolStats = getSchoolStats();
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="flex items-center space-x-2">
+          <RefreshCw className="w-8 h-8 animate-spin text-blue-600" />
+          <span className="text-lg">Loading data...</span>
+        </div>
+      </div>
+    );
+  }
+
+  const stats = analytics.overview || {
+    totalStudents: 0,
+    totalSchools: 0,
+    bySchoolType: {},
+    byClass: {},
+    byClassLevel: {},
+    overallDistribution: { 'Below Average (0-5)': 0, 'Average (6-7)': 0, 'Excellent (8-10)': 0 }
+  };
+
   const chartData = getChartData();
   const pieData = getPieChartData();
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* Error Display */}
+      {error && (
+        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 mb-4 rounded">
+          <div className="flex items-center">
+            <AlertCircle className="w-5 h-5 mr-2" />
+            <span>{error}</span>
+            <button 
+              onClick={() => setError(null)}
+              className="ml-auto text-red-500 hover:text-red-700"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="bg-blue-600 text-white p-6">
         <div className="max-w-7xl mx-auto">
-          <h1 className="text-3xl font-bold">Multi-School Marks Analysis System</h1>
-          <p className="text-blue-100 mt-2">District Education Management - Classes 6-9</p>
-          <div className="flex items-center mt-2 text-blue-200">
-            <School className="w-4 h-4 mr-2" />
-            <span>{stats.totalSchools} Schools • {stats.totalStudents} Students</span>
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold">Multi-School Marks Analysis System</h1>
+              <p className="text-blue-100 mt-2">District Education Management - Classes 6-9 (MongoDB)</p>
+              <div className="flex items-center mt-2 text-blue-200">
+                <School className="w-4 h-4 mr-2" />
+                <span>{stats.totalSchools} Schools • {stats.totalStudents} Students</span>
+              </div>
+            </div>
+            <button
+              onClick={loadData}
+              className="bg-blue-700 hover:bg-blue-800 p-2 rounded-lg"
+              title="Refresh Data"
+            >
+              <RefreshCw className="w-5 h-5" />
+            </button>
           </div>
         </div>
       </div>
@@ -467,8 +498,8 @@ const MultiSchoolMarksAnalyzer = () => {
               <div className="bg-white p-6 rounded-lg shadow-sm">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-gray-500">PUMS Schools</p>
-                    <p className="text-2xl font-bold text-purple-600">{schools.filter(s => s.type === 'PUMS').length}</p>
+                    <p className="text-gray-500">PUMS Students</p>
+                    <p className="text-2xl font-bold text-purple-600">{stats.bySchoolType['PUMS'] || 0}</p>
                   </div>
                   <BookOpen className="w-8 h-8 text-purple-600" />
                 </div>
@@ -477,8 +508,8 @@ const MultiSchoolMarksAnalyzer = () => {
               <div className="bg-white p-6 rounded-lg shadow-sm">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-gray-500">GHS Schools</p>
-                    <p className="text-2xl font-bold text-orange-600">{schools.filter(s => s.type === 'GHS').length}</p>
+                    <p className="text-gray-500">GHS Students</p>
+                    <p className="text-2xl font-bold text-orange-600">{stats.bySchoolType['GHS'] || 0}</p>
                   </div>
                   <BookOpen className="w-8 h-8 text-orange-600" />
                 </div>
@@ -552,7 +583,9 @@ const MultiSchoolMarksAnalyzer = () => {
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {schools.map(school => {
-                const schoolData = schoolStats[school.id];
+                const schoolStudents = students.filter(s => s.school === school.id);
+                const schoolStudentCount = schoolStudents.length;
+                
                 return (
                   <div key={school.id} className="bg-white p-6 rounded-lg shadow-sm border">
                     <div className="flex items-start justify-between mb-4">
@@ -575,36 +608,21 @@ const MultiSchoolMarksAnalyzer = () => {
                     <div className="space-y-3">
                       <div className="flex justify-between">
                         <span className="text-gray-600">Total Students:</span>
-                        <span className="font-medium">{schoolData.totalStudents}</span>
+                        <span className="font-medium">{schoolStudentCount}</span>
                       </div>
                       
                       <div className="grid grid-cols-4 gap-2 text-center">
-                        {classLevels.map(level => (
-                          <div key={level} className="bg-gray-50 p-2 rounded">
-                            <div className="text-sm font-medium">{level}</div>
-                            <div className="text-lg font-bold text-blue-600">
-                              {schoolData.byClassLevel[level] || 0}
+                        {classLevels.map(level => {
+                          const levelCount = schoolStudents.filter(s => s.class.startsWith(level)).length;
+                          return (
+                            <div key={level} className="bg-gray-50 p-2 rounded">
+                              <div className="text-sm font-medium">{level}</div>
+                              <div className="text-lg font-bold text-blue-600">
+                                {levelCount}
+                              </div>
                             </div>
-                          </div>
-                        ))}
-                      </div>
-
-                      <div className="border-t pt-3">
-                        <div className="text-sm text-gray-600 mb-2">Performance Distribution:</div>
-                        <div className="space-y-1">
-                          <div className="flex justify-between text-xs">
-                            <span className="text-red-600">Below Average:</span>
-                            <span>{schoolData.performance['Below Average (0-5)']}</span>
-                          </div>
-                          <div className="flex justify-between text-xs">
-                            <span className="text-yellow-600">Average:</span>
-                            <span>{schoolData.performance['Average (6-7)']}</span>
-                          </div>
-                          <div className="flex justify-between text-xs">
-                            <span className="text-green-600">Excellent:</span>
-                            <span>{schoolData.performance['Excellent (8-10)']}</span>
-                          </div>
-                        </div>
+                          );
+                        })}
                       </div>
                       
                       <button 
@@ -646,14 +664,15 @@ const MultiSchoolMarksAnalyzer = () => {
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">English</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Maths</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Average</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {getFilteredStudents().map((student) => {
+                  {students.map((student) => {
                     const avg = ((student.tamil + student.english + student.maths) / 3).toFixed(1);
                     const school = schools.find(s => s.id === student.school);
                     return (
-                      <tr key={student.id}>
+                      <tr key={student._id}>
                         <td className="px-6 py-4 whitespace-nowrap font-medium">{student.name}</td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div>
@@ -727,7 +746,7 @@ const MultiSchoolMarksAnalyzer = () => {
                     </div>
                   </div>
                   <div className="w-full bg-gray-200 rounded-full h-3">
-                    <div className="flex h-3 rounded-full overflow-hidden">
+                    <div className="flex h-3 rounded-full">//modified 
                       <div 
                         className="bg-red-500" 
                         style={{width: analysis.total > 0 ? `${(analysis['Below Average (0-5)'] / analysis.total * 100)}%` : '0%'}}
